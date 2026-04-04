@@ -3,6 +3,7 @@ import { join } from "node:path";
 import log from "electron-log/main";
 import { FeishuService } from "./feishuService";
 import { SentimentAnalyzer } from "./sentimentService";
+import { SummaryService, type SummaryResult } from "./summaryService";
 import { getFeishuConfig, getSentimentConfig } from "../store";
 
 export interface DailyReportResult {
@@ -13,6 +14,7 @@ export interface DailyReportResult {
   totalChars: number;
   moodScore: number;
   moodLabel: string;
+  summary?: SummaryResult;
   errorMessage?: string;
 }
 
@@ -108,6 +110,23 @@ export class DailyReportService {
         }
       }
 
+      // Generate smart summary using LLM
+      let summary: SummaryResult | undefined;
+      const fullTranscript = records.map(r => r.text).filter(Boolean).join(" ");
+      if (sentimentConfig.enabled && sentimentConfig.apiKey && sentimentConfig.baseUrl && fullTranscript.trim()) {
+        try {
+          const summaryService = new SummaryService({
+            apiKey: sentimentConfig.apiKey,
+            baseUrl: sentimentConfig.baseUrl,
+            model: sentimentConfig.model
+          });
+          summary = await summaryService.generateSummary(fullTranscript, date);
+          log.info(`[daily-report] Summary generated: ${summary.decisions.length} decisions, ${summary.todos.length} todos`);
+        } catch (e) {
+          log.warn("[daily-report] Failed to generate summary:", e);
+        }
+      }
+
       // Generate markdown report
       const reportContent = this.generateMarkdown(date, {
         sourceFileCount: jsonFiles.length,
@@ -115,7 +134,8 @@ export class DailyReportService {
         totalChars,
         moodScore,
         moodLabel,
-        records
+        records,
+        summary
       });
 
       // Save report
@@ -133,7 +153,8 @@ export class DailyReportService {
         segmentCount: records.length,
         totalChars,
         moodScore,
-        moodLabel
+        moodLabel,
+        summary
       };
     } catch (error) {
       log.error("[daily-report] Failed to generate report:", error);
@@ -164,6 +185,7 @@ export class DailyReportService {
         start_time_iso?: string;
         end_time_iso?: string;
       }>;
+      summary?: SummaryResult;
     }
   ): string {
     const lines: string[] = [];
@@ -177,6 +199,39 @@ export class DailyReportService {
     lines.push(`- Total Characters: ${data.totalChars}`);
     lines.push(`- Mood: ${moodEmoji} ${data.moodLabel} (score: ${data.moodScore.toFixed(2)})`);
     lines.push("");
+
+    // Smart Summary Section
+    if (data.summary) {
+      lines.push("## 📋 Smart Summary");
+      lines.push("");
+      if (data.summary.summary) {
+        lines.push(`**概述**: ${data.summary.summary}`);
+        lines.push("");
+      }
+      if (data.summary.decisions.length > 0) {
+        lines.push("### 🎯 Key Decisions");
+        for (const decision of data.summary.decisions) {
+          lines.push(`- ${decision}`);
+        }
+        lines.push("");
+      }
+      if (data.summary.todos.length > 0) {
+        lines.push("### 📌 Action Items");
+        for (const todo of data.summary.todos) {
+          const assignee = todo.assignee ? ` @${todo.assignee}` : "";
+          lines.push(`- [ ] ${todo.text}${assignee}`);
+        }
+        lines.push("");
+      }
+      if (data.summary.highlights.length > 0) {
+        lines.push("### 💬 Highlights");
+        for (const highlight of data.summary.highlights) {
+          lines.push(`> ${highlight}`);
+        }
+        lines.push("");
+      }
+    }
+
     lines.push("## Timeline");
     lines.push("");
 
@@ -212,16 +267,35 @@ export class DailyReportService {
       const service = new FeishuService(feishuConfig.appId, feishuConfig.appSecret);
       const moodEmoji = report.moodScore > 0.3 ? "🟢" : report.moodScore < -0.3 ? "🔴" : "🟡";
 
-      const message = `📅 **EVE Daily Review - ${report.date}**
+      let message = `📅 **EVE Daily Review - ${report.date}**
 
 📊 **统计信息：**
 - 源文件数：${report.sourceFileCount}
 - 转写段数：${report.segmentCount}
 - 总字符数：${report.totalChars}
-- 心情指数：${moodEmoji} ${report.moodLabel} (得分: ${report.moodScore.toFixed(2)})
+- 心情指数：${moodEmoji} ${report.moodLabel} (得分: ${report.moodScore.toFixed(2)})`;
 
-📝 **今日记录已生成**
-本地路径：\`${reportPath}\``;
+      // Add smart summary if available
+      if (report.summary) {
+        if (report.summary.summary) {
+          message += `\n\n📝 **概述**: ${report.summary.summary}`;
+        }
+        if (report.summary.decisions.length > 0) {
+          message += `\n\n🎯 **决策**:`;
+          for (const d of report.summary.decisions.slice(0, 3)) {
+            message += `\n• ${d}`;
+          }
+        }
+        if (report.summary.todos.length > 0) {
+          message += `\n\n📌 **待办**:`;
+          for (const t of report.summary.todos.slice(0, 3)) {
+            const assignee = t.assignee ? ` @${t.assignee}` : "";
+            message += `\n• ${t.text}${assignee}`;
+          }
+        }
+      }
+
+      message += `\n\n📄 **完整报告**: ${reportPath}`;
 
       const result = await service.sendTextMessage(
         feishuConfig.receiveId,
