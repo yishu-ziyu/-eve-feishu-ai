@@ -44,8 +44,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--input-dir",
-        default="recordings",
-        help="Directory to scan for WAV/FLAC recordings.",
+        default=os.getenv("EVE_RECORDINGS_DIR", "recordings"),
+        help="Directory to scan for WAV/FLAC recordings. Defaults to EVE_RECORDINGS_DIR env var or 'recordings'.",
     )
     parser.add_argument(
         "--prefix",

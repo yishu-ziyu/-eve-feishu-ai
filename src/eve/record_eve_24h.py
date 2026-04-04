@@ -36,8 +36,8 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--output-dir",
-        default="recordings",
-        help="Directory to store audio segments.",
+        default=os.getenv("EVE_RECORDINGS_DIR", "recordings"),
+        help="Directory to store audio segments. Defaults to EVE_RECORDINGS_DIR env var or 'recordings'.",
     )
     parser.add_argument(
         "--audio-format",

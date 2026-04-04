@@ -17,7 +17,9 @@ from .utils.sentiment_analyzer import SentimentAnalyzer, get_mood_emoji
 
 DATE_RE = re.compile(r"^\d{8}$")
 STAMP_RE = re.compile(r"(\d{8}_\d{6})")
-DEFAULT_SOURCE_DIR = Path(os.getenv("EVE_SOURCE_DIR", Path.home() / "eve_recordings")).expanduser()
+# Unified storage path - single source of truth for all EVE modules
+# This env var should be used by: record, transcribe, and review_pipeline
+DEFAULT_SOURCE_DIR = Path(os.getenv("EVE_RECORDINGS_DIR", Path.home() / "eve_recordings")).expanduser()
 DEFAULT_OUTPUT_SUBDIR = "_processed"
 
 # Feishu Credentials (Redacted - Loaded from Environment)
